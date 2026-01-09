@@ -29,7 +29,7 @@ export interface SampleRequest {
   resultUploadDate?: string; 
 }
 
-// Fix: Added VideoGenerationState interface to resolve the import error in VideoGenerator.tsx
+// Added VideoGenerationState interface
 export interface VideoGenerationState {
   isGenerating: boolean;
   message?: string;
