@@ -1,0 +1,8 @@
+{
+  "name": "Servicio de microbiología-BritLab",
+  "description": "Plataforma de gestión de derivaciones microbiológicas entre Sanatorio Laprida y Brit-Lab.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
