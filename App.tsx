@@ -1,5 +1,4 @@
 
-import React, { useState, useEffect } from 'react';
 import { UserRole, SampleRequest, Patient, SAMPLE_DAYS_MAP } from './types';
 import { databaseService } from './services/databaseService';
 import SampleForm from './components/SampleForm';
