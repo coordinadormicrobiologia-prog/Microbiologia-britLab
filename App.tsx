@@ -26,6 +26,9 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'samples' | 'stats'>('samples');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
+  // Nuevo estado para mostrar/ocultar el modal de carga de muestra
+  const [showSampleForm, setShowSampleForm] = useState<boolean>(false);
+
   // Carga inicial
   useEffect(() => {
     const loadData = async () => {
@@ -116,69 +119,100 @@ const App: React.FC = () => {
 
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl border border-slate-200 w-full max-w-md">
-          <div className="flex flex-col items-center mb-10">
-            <div className="flex items-center text-5xl font-black tracking-tighter mb-2">
-              <span className="text-[#939393]">Brit</span>
-              <span className="text-[#4cd4cc]">Lab</span>
-            </div>
-            <p className="text-[10px] uppercase tracking-[0.3em] font-bold text-slate-400">
-              Microbiología de Avanzada
-            </p>
+      <div className="min-h-screen bg-[#fcfcfc] flex flex-col">
+        {/* Login form */}
+        <form onSubmit={handleLogin} className="space-y-6 p-6 max-w-xl mx-auto w-full">
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+              Usuario
+            </label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"
+            >
+              <option value={UserRole.DERIVED_LAB}>Sanatorio Laprida</option>
+              <option value={UserRole.CENTRAL_LAB_ADMIN}>Brit-Lab (Admin)</option>
+            </select>
           </div>
 
-          <form onSubmit={handleLogin} className="space-y-6">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                Usuario
-              </label>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value as UserRole)}
-                className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"
-              >
-                <option value={UserRole.DERIVED_LAB}>Sanatorio Laprida</option>
-                <option value={UserRole.CENTRAL_LAB_ADMIN}>Brit-Lab (Admin)</option>
-              </select>
+          <div>
+            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
+              Contraseña
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl"
+              />
             </div>
+          </div>
 
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-                Contraseña
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl"
-                />
-              </div>
-            </div>
-
-            <button className="w-full bg-[#4cd4cc] text-white py-5 rounded-2xl font-black">
-              ACCEDER AL SERVICIO
-            </button>
-          </form>
-        </div>
+          <button className="w-full bg-[#4cd4cc] text-white py-5 rounded-2xl font-black">
+            ACCEDER AL SERVICIO
+          </button>
+        </form>
       </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col">
-      {/* el resto del JSX queda EXACTAMENTE como lo tenías */}
-      {/* no hay errores de tipos más abajo porque ya tipamos `samples.map` */}
-      {activeTab === 'stats' && role === UserRole.CENTRAL_LAB_ADMIN ? (
-        <StatisticsDashboard samples={samples} />
-      ) : (
-        <AdminDashboard
-          samples={samples}
-          onUpdateStatus={handleUpdateStatus}
-          onUploadResult={handleUploadResult}
-        />
+      {/* Cabecera / acciones principales */}
+      <header className="p-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-black">Microbiología de Avanzada</h1>
+        </div>
+
+        <div className="flex items-center space-x-3">
+          {/* Botón para abrir el formulario de carga de muestra */}
+          <button
+            onClick={() => setShowSampleForm(true)}
+            className="bg-[#4cd4cc] text-white px-4 py-2 rounded-lg font-bold hover:bg-[#3bbdb6]"
+          >
+            Cargar Muestra
+          </button>
+
+          {/* Aquí podrías mantener más botones (sincronizar, descargar, etc.) */}
+        </div>
+      </header>
+
+      <main className="p-6 flex-1">
+        {activeTab === 'stats' && role === UserRole.CENTRAL_LAB_ADMIN ? (
+          <StatisticsDashboard samples={samples} />
+        ) : (
+          <AdminDashboard
+            samples={samples}
+            onUpdateStatus={handleUpdateStatus}
+            onUploadResult={handleUploadResult}
+          />
+        )}
+      </main>
+
+      {/* Modal simple para el SampleForm */}
+      {showSampleForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl w-full max-w-3xl p-6 relative shadow-lg">
+            <button
+              onClick={() => setShowSampleForm(false)}
+              className="absolute right-4 top-4 text-slate-500 hover:text-slate-700 font-bold"
+            >
+              Cerrar
+            </button>
+
+            <h3 className="font-black text-lg mb-4">Carga de Muestra</h3>
+
+            <SampleForm
+              onAdd={(patient: Patient) => {
+                handleAddSample(patient);
+                setShowSampleForm(false);
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
