@@ -177,3 +177,33 @@ const App: React.FC = () => {
 };
 
 export default App;
+
+import { SampleRequest, Patient } from "./types";
+
+export function normalizeSamples(rows: any[]): SampleRequest[] {
+  return rows.map((r) => {
+    const patient: Patient = {
+      dni: String(r.patient_dni ?? ""),
+      name: String(r.patient_name ?? ""),
+      age: Number(r.patient_age ?? 0),
+      sex: (r.sex as any) ?? "Otro",
+      sampleType: String(r.sample_type ?? ""),
+      presumptiveDiagnosis: String(r.presumptive_dx ?? ""),
+      background: String(r.antecedents ?? ""),
+      observations: String(r.observations ?? ""),
+    };
+
+    const sample: SampleRequest = {
+      id: String(r.id),
+      patient,
+      requestDate: String(r.created_at ?? ""),
+      received: (r.status as any) ?? "PENDIENTE",
+      arrivalDate: r.arrivalDate ?? undefined,
+      promisedDate: r.promisedDate ?? undefined,
+      resultUrl: r.resultUrl ?? undefined,
+      resultUploadDate: r.resultUploadDate ?? undefined,
+    };
+
+    return sample;
+  });
+}
