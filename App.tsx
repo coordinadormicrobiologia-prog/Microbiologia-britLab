@@ -1,231 +1,180 @@
-import React, { useState, useEffect } from 'react';
+// Apps Script (reemplazar Code.gs en tu proyecto)
+//
+// Versión sin setHeader (Apps Script TextOutput no soporta setHeader).
+// Acepta JSON (application/json) o form-urlencoded (e.parameter con sample stringified).
 
-import { UserRole, SampleRequest, Patient, SAMPLE_DAYS_MAP } from './types';
-import { databaseService } from './services/databaseService';
-
-import SampleForm from './components/SampleForm';
-import AdminDashboard from './components/AdminDashboard';
-import StatisticsDashboard from './components/StatisticsDashboard';
-
-import {
-  Lock,
-} from 'lucide-react';
-
-const App: React.FC = () => {
-  const [role, setRole] = useState<UserRole>(UserRole.DERIVED_LAB);
-  const [samples, setSamples] = useState<SampleRequest[]>([]);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
-  const [password, setPassword] = useState<string>('');
-  const [activeTab, setActiveTab] = useState<'samples' | 'stats'>('samples');
-
-  // Modal
-  const [showSampleForm, setShowSampleForm] = useState<boolean>(false);
-
-  // Carga inicial desde Google Sheets
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const data = await databaseService.getSamples();
-        setSamples(data);
-      } catch (err) {
-        console.error(err);
-        alert('No se pudo cargar la información desde Google Sheets.');
-      }
-    };
-    loadData();
-  }, []);
-
-  const reloadSamples = async () => {
-    const data = await databaseService.getSamples();
-    setSamples(data);
-  };
-
-  const calculatePromisedDate = (startDate: string, sampleType: string): string => {
-    const daysToAdd = SAMPLE_DAYS_MAP[sampleType] || 1;
-    let currentDate = new Date(startDate);
-    let addedDays = 0;
-
-    while (addedDays < daysToAdd) {
-      currentDate.setDate(currentDate.getDate() + 1);
-      if (currentDate.getDay() !== 0) {
-        addedDays++;
-      }
-    }
-    return currentDate.toISOString();
-  };
-
-  // ✅ AHORA: enviar la muestra a Google Sheets (Apps Script)
-  const handleAddSample = async (patient: Patient): Promise<void> => {
-    try {
-      // Mapeo Patient -> payload que espera el Apps Script
-      const samplePayload = {
-        created_by:
-          role === UserRole.DERIVED_LAB ? 'Sanatorio Laprida' : 'Brit-Lab (Admin)',
-        patient_name: patient.name,
-        patient_dni: patient.dni,
-        sex: patient.sex,
-        sample_type: patient.sampleType,
-        presumptive_dx: patient.presumptiveDiagnosis,
-        antecedents: patient.background,
-        status: 'PENDIENTE',
-      };
-
-      await databaseService.createSample(samplePayload);
-
-      // Refrescamos desde Sheets para ver el ID real y lo guardado
-      await reloadSamples();
-
-      // Cerrar modal
-      setShowSampleForm(false);
-    } catch (err) {
-      console.error(err);
-      alert('No se pudo enviar la derivación a Google Sheets.');
-    }
-  };
-
-  // ✅ Actualizar estado: también persistir en Sheets
-  const handleUpdateStatus = async (id: string, status: 'SI' | 'NO'): Promise<void> => {
-    try {
-      // Actualización optimista en UI
-      setSamples((prev: SampleRequest[]) =>
-        prev.map((s: SampleRequest) => {
-          if (s.id === id) {
-            const arrivalDate = new Date().toISOString();
-            const promisedDate =
-              status === 'SI'
-                ? calculatePromisedDate(arrivalDate, s.patient.sampleType)
-                : undefined;
-
-            return {
-              ...s,
-              received: status,
-              arrivalDate,
-              promisedDate
-            };
-          }
-          return s;
-        })
-      );
-
-      // Persistir en Sheets (status)
-      await databaseService.updateSampleStatus(id, status);
-
-      // Refrescar desde Sheets (para confirmar)
-      await reloadSamples();
-    } catch (err) {
-      console.error(err);
-      alert('No se pudo actualizar el estado en Google Sheets.');
-    }
-  };
-
-  // Esto queda local por ahora (si querés persistir, después lo agregamos al Apps Script)
-  const handleUploadResult = (id: string, resultUrl: string): void => {
-    setSamples((prev: SampleRequest[]) =>
-      prev.map((s: SampleRequest) =>
-        s.id === id
-          ? { ...s, resultUrl, resultUploadDate: new Date().toISOString() }
-          : s
-      )
-    );
-  };
-
-  const handleLogin = (e: React.FormEvent<HTMLFormElement>): void => {
-    e.preventDefault();
-    if (password === 'admin123' || password === 'laprida2024') {
-      setIsLoggedIn(true);
-    } else {
-      alert('Contraseña incorrecta');
-    }
-  };
-
-  if (!isLoggedIn) {
-    return (
-      <div className="min-h-screen bg-[#fcfcfc] flex flex-col">
-        <form onSubmit={handleLogin} className="space-y-6 p-6 max-w-xl mx-auto w-full">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-              Usuario
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold"
-            >
-              <option value={UserRole.DERIVED_LAB}>Sanatorio Laprida</option>
-              <option value={UserRole.CENTRAL_LAB_ADMIN}>Brit-Lab (Admin)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
-              Contraseña
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-12 pr-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl"
-              />
-            </div>
-          </div>
-
-          <button className="w-full bg-[#4cd4cc] text-white py-5 rounded-2xl font-black">
-            ACCEDER AL SERVICIO
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#fcfcfc] flex flex-col">
-      <header className="p-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-black">Microbiología de Avanzada</h1>
-        </div>
-
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => setShowSampleForm(true)}
-            className="bg-[#4cd4cc] text-white px-4 py-2 rounded-lg font-bold hover:bg-[#3bbdb6]"
-          >
-            Cargar Muestra
-          </button>
-        </div>
-      </header>
-
-      <main className="p-6 flex-1">
-        {activeTab === 'stats' && role === UserRole.CENTRAL_LAB_ADMIN ? (
-          <StatisticsDashboard samples={samples} />
-        ) : (
-          <AdminDashboard
-            samples={samples}
-            onUpdateStatus={handleUpdateStatus}
-            onUploadResult={handleUploadResult}
-          />
-        )}
-      </main>
-
-      {showSampleForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl w-full max-w-3xl p-6 relative shadow-lg">
-            <button
-              onClick={() => setShowSampleForm(false)}
-              className="absolute right-4 top-4 text-slate-500 hover:text-slate-700 font-bold"
-            >
-              Cerrar
-            </button>
-
-            <h3 className="font-black text-lg mb-4">Carga de Muestra</h3>
-
-            <SampleForm onAdd={handleAddSample} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
+const SPREADSHEET_ID = "1-CXI3hS7K3uhSG-QpGm5K7Jg9pI0DMRi9ircB0e2to";
+const SHEETS = {
+  SAMPLES: "muestras",
+  USERS: "usuarios",
+  AUDIT: "auditoria",
 };
 
-export default App;
+const API_KEY = "staphylococcusaureus";
+
+// Responde a preflight (simple): devuelve vacio. Idealmente el front evita el preflight.
+function doOptions(e) {
+  return ContentService.createTextOutput("").setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  try {
+    // Intentar parsear JSON (cuando el cliente envía application/json)
+    let body = {};
+    try {
+      body = JSON.parse((e.postData && e.postData.contents) || "{}");
+    } catch (_) {
+      // si no es JSON, puede venir como form-urlencoded -> e.parameter
+      body = Object.assign({}, e.parameter || {});
+      // si el frontend envía sample como JSON string, parsearlo
+      if (body.sample && typeof body.sample === "string") {
+        try { body.sample = JSON.parse(body.sample); } catch (_) {}
+      }
+    }
+
+    if (!body.action) return jsonError_("Missing action");
+
+    // Seguridad mínima por API key
+    if (!body.api_key || body.api_key !== API_KEY) {
+      return jsonError_("Unauthorized");
+    }
+
+    switch (body.action) {
+      case "samples:list":
+        return jsonOk_({ samples: listSamples_() });
+
+      case "samples:create":
+        return jsonOk_({ created: createSample_(body.sample) });
+
+      case "samples:updateStatus":
+        return jsonOk_({ updated: updateSampleStatus_(body.id, body.status) });
+
+      case "auth:login":
+        return jsonOk_(login_(body.username, body.password));
+
+      default:
+        return jsonError_("Unknown action");
+    }
+  } catch (err) {
+    return jsonError_(String(err));
+  }
+}
+
+/** CORE **/
+function listSamples_() {
+  const sh = sheet_(SHEETS.SAMPLES);
+  const values = sh.getDataRange().getValues();
+  if (values.length < 2) return [];
+
+  const headers = values[0].map(String);
+  const out = [];
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (row.join("").trim() === "") continue;
+    const obj = {};
+    headers.forEach((h, idx) => obj[h] = row[idx]);
+    out.push(obj);
+  }
+
+  out.sort((a,b) => String(b.created_at).localeCompare(String(a.created_at)));
+  return out;
+}
+
+function createSample_(sample) {
+  if (!sample) throw new Error("Missing sample");
+
+  const sh = sheet_(SHEETS.SAMPLES);
+  const headers = sh.getRange(1,1,1,sh.getLastColumn()).getValues()[0].map(String);
+
+  const id = Utilities.getUuid();
+  const now = new Date();
+  const rowObj = {
+    id,
+    created_at: now.toISOString(),
+    created_by: sample.created_by || "",
+    patient_name: sample.patient_name || "",
+    patient_dni: sample.patient_dni || "",
+    sex: sample.sex || "",
+    sample_type: sample.sample_type || "",
+    presumptive_dx: sample.presumptive_dx || "",
+    antecedents: sample.antecedents || "",
+    status: sample.status || "PENDIENTE",
+  };
+
+  const row = headers.map(h => rowObj[h] ?? "");
+  sh.appendRow(row);
+
+  audit_("samples:create", sample.created_by || "", rowObj);
+  return rowObj;
+}
+
+function updateSampleStatus_(id, status) {
+  if (!id) throw new Error("Missing id");
+  if (!status) throw new Error("Missing status");
+
+  const sh = sheet_(SHEETS.SAMPLES);
+  const data = sh.getDataRange().getValues();
+  const headers = data[0].map(String);
+
+  const idCol = headers.indexOf("id");
+  const statusCol = headers.indexOf("status");
+  if (idCol < 0 || statusCol < 0) throw new Error("Sheet missing id/status columns");
+
+  for (let r = 1; r < data.length; r++) {
+    if (String(data[r][idCol]) === String(id)) {
+      sh.getRange(r+1, statusCol+1).setValue(status);
+      audit_("samples:updateStatus", "", { id, status });
+      return { id, status };
+    }
+  }
+  throw new Error("Sample not found");
+}
+
+/** AUTH (opcional) **/
+function login_(username, password) {
+  const sh = sheet_(SHEETS.USERS);
+  const values = sh.getDataRange().getValues();
+  const headers = values[0].map(String);
+
+  const uCol = headers.indexOf("username");
+  const pCol = headers.indexOf("password_hash");
+  const rCol = headers.indexOf("role");
+  if (uCol < 0 || pCol < 0 || rCol < 0) throw new Error("Usuarios sheet headers incorrectos");
+
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][uCol]) === String(username) && String(values[i][pCol]) === String(password)) {
+      return { ok: true, role: values[i][rCol], username };
+    }
+  }
+  return { ok: false };
+}
+
+/** HELPERS **/
+function sheet_(name) {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  const sh = ss.getSheetByName(name);
+  if (!sh) throw new Error(`Missing sheet: ${name}`);
+  return sh;
+}
+
+function audit_(action, by, payload) {
+  try {
+    const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const sh = ss.getSheetByName(SHEETS.AUDIT);
+    if (!sh) return;
+    sh.appendRow([new Date().toISOString(), action, by, JSON.stringify(payload)]);
+  } catch (_) {}
+}
+
+function jsonOk_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: true, ...obj }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function jsonError_(msg) {
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: false, error: msg }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
