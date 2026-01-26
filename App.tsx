@@ -8,14 +8,7 @@ import AdminDashboard from './components/AdminDashboard';
 import StatisticsDashboard from './components/StatisticsDashboard';
 
 import {
-  Microscope,
-  ArrowLeftRight,
   Lock,
-  Database,
-  ClipboardCheck,
-  BarChart3,
-  Download,
-  Cloud
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -24,32 +17,28 @@ const App: React.FC = () => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [password, setPassword] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'samples' | 'stats'>('samples');
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  // Nuevo estado para mostrar/ocultar el modal de carga de muestra
+  // Modal
   const [showSampleForm, setShowSampleForm] = useState<boolean>(false);
 
-  // Carga inicial
+  // Carga inicial desde Google Sheets
   useEffect(() => {
     const loadData = async () => {
-      const data = await databaseService.getSamples();
-      setSamples(data);
+      try {
+        const data = await databaseService.getSamples();
+        setSamples(data);
+      } catch (err) {
+        console.error(err);
+        alert('No se pudo cargar la información desde Google Sheets.');
+      }
     };
     loadData();
   }, []);
 
-  // Guardado automático
-  useEffect(() => {
-    const syncData = async () => {
-      setIsSyncing(true);
-      await databaseService.saveSamples(samples);
-      setTimeout(() => setIsSyncing(false), 800);
-    };
-
-    if (samples.length > 0) {
-      syncData();
-    }
-  }, [samples]);
+  const reloadSamples = async () => {
+    const data = await databaseService.getSamples();
+    setSamples(data);
+  };
 
   const calculatePromisedDate = (startDate: string, sampleType: string): string => {
     const daysToAdd = SAMPLE_DAYS_MAP[sampleType] || 1;
@@ -65,39 +54,71 @@ const App: React.FC = () => {
     return currentDate.toISOString();
   };
 
-  const handleAddSample = (patient: Patient): void => {
-    const newSample: SampleRequest = {
-      id: crypto.randomUUID(),
-      patient,
-      requestDate: new Date().toISOString(),
-      received: 'PENDIENTE'
-    };
+  // ✅ AHORA: enviar la muestra a Google Sheets (Apps Script)
+  const handleAddSample = async (patient: Patient): Promise<void> => {
+    try {
+      // Mapeo Patient -> payload que espera el Apps Script
+      const samplePayload = {
+        created_by:
+          role === UserRole.DERIVED_LAB ? 'Sanatorio Laprida' : 'Brit-Lab (Admin)',
+        patient_name: patient.name,
+        patient_dni: patient.dni,
+        sex: patient.sex,
+        sample_type: patient.sampleType,
+        presumptive_dx: patient.presumptiveDiagnosis,
+        antecedents: patient.background,
+        status: 'PENDIENTE',
+      };
 
-    setSamples((prev: SampleRequest[]) => [newSample, ...prev]);
+      await databaseService.createSample(samplePayload);
+
+      // Refrescamos desde Sheets para ver el ID real y lo guardado
+      await reloadSamples();
+
+      // Cerrar modal
+      setShowSampleForm(false);
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo enviar la derivación a Google Sheets.');
+    }
   };
 
-  const handleUpdateStatus = (id: string, status: 'SI' | 'NO'): void => {
-    setSamples((prev: SampleRequest[]) =>
-      prev.map((s: SampleRequest) => {
-        if (s.id === id) {
-          const arrivalDate = new Date().toISOString();
-          const promisedDate =
-            status === 'SI'
-              ? calculatePromisedDate(arrivalDate, s.patient.sampleType)
-              : undefined;
+  // ✅ Actualizar estado: también persistir en Sheets
+  const handleUpdateStatus = async (id: string, status: 'SI' | 'NO'): Promise<void> => {
+    try {
+      // Actualización optimista en UI
+      setSamples((prev: SampleRequest[]) =>
+        prev.map((s: SampleRequest) => {
+          if (s.id === id) {
+            const arrivalDate = new Date().toISOString();
+            const promisedDate =
+              status === 'SI'
+                ? calculatePromisedDate(arrivalDate, s.patient.sampleType)
+                : undefined;
 
-          return {
-            ...s,
-            received: status,
-            arrivalDate,
-            promisedDate
-          };
-        }
-        return s;
-      })
-    );
+            return {
+              ...s,
+              received: status,
+              arrivalDate,
+              promisedDate
+            };
+          }
+          return s;
+        })
+      );
+
+      // Persistir en Sheets (status)
+      await databaseService.updateSampleStatus(id, status);
+
+      // Refrescar desde Sheets (para confirmar)
+      await reloadSamples();
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo actualizar el estado en Google Sheets.');
+    }
   };
 
+  // Esto queda local por ahora (si querés persistir, después lo agregamos al Apps Script)
   const handleUploadResult = (id: string, resultUrl: string): void => {
     setSamples((prev: SampleRequest[]) =>
       prev.map((s: SampleRequest) =>
@@ -120,7 +141,6 @@ const App: React.FC = () => {
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen bg-[#fcfcfc] flex flex-col">
-        {/* Login form */}
         <form onSubmit={handleLogin} className="space-y-6 p-6 max-w-xl mx-auto w-full">
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-2">
@@ -161,22 +181,18 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#fcfcfc] flex flex-col">
-      {/* Cabecera / acciones principales */}
       <header className="p-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-black">Microbiología de Avanzada</h1>
         </div>
 
         <div className="flex items-center space-x-3">
-          {/* Botón para abrir el formulario de carga de muestra */}
           <button
             onClick={() => setShowSampleForm(true)}
             className="bg-[#4cd4cc] text-white px-4 py-2 rounded-lg font-bold hover:bg-[#3bbdb6]"
           >
             Cargar Muestra
           </button>
-
-          {/* Aquí podrías mantener más botones (sincronizar, descargar, etc.) */}
         </div>
       </header>
 
@@ -192,7 +208,6 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* Modal simple para el SampleForm */}
       {showSampleForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl w-full max-w-3xl p-6 relative shadow-lg">
@@ -205,12 +220,7 @@ const App: React.FC = () => {
 
             <h3 className="font-black text-lg mb-4">Carga de Muestra</h3>
 
-            <SampleForm
-              onAdd={(patient: Patient) => {
-                handleAddSample(patient);
-                setShowSampleForm(false);
-              }}
-            />
+            <SampleForm onAdd={handleAddSample} />
           </div>
         </div>
       )}
