@@ -1,18 +1,28 @@
 import type { SampleRequest } from "../../types";
 
-
 const SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL as string;
 const API_KEY = import.meta.env.VITE_API_KEY as string;
-
 
 async function post(action: string, payload: any = {}) {
   if (!SCRIPT_URL) throw new Error("Falta VITE_GOOGLE_SCRIPT_URL");
   if (!API_KEY) throw new Error("Falta VITE_API_KEY");
 
+  // Enviar como application/x-www-form-urlencoded para evitar preflight (CORS)
+  const params = new URLSearchParams();
+  params.append("action", action);
+  params.append("api_key", API_KEY);
+
+  Object.entries(payload).forEach(([k, v]) => {
+    if (typeof v === "object") {
+      params.append(k, JSON.stringify(v));
+    } else {
+      params.append(k, String(v));
+    }
+  });
+
   const res = await fetch(SCRIPT_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, api_key: API_KEY, ...payload }),
+    body: params // no seteamos headers => navegador usa application/x-www-form-urlencoded (no preflight)
   });
 
   const data = await res.json();
@@ -39,13 +49,12 @@ export const databaseService = {
     return data.updated;
   },
 
-  // ✅ mantenemos estas 2 para que no rompa imports viejos
+  // Compatibilidad (no usada)
   async saveSamples(_samples: SampleRequest[]): Promise<void> {
-    // Ya no se usa en modo Sheets. Lo dejamos vacío para compatibilidad.
     return;
   },
 
   exportToCSV(_samples: SampleRequest[]) {
-    // si lo usabas, lo implementamos después. Por ahora no afecta Sheets.
+    // pendiente
   },
 };
