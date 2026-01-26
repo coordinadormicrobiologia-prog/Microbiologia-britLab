@@ -1,1 +1,20 @@
+export default async function handler(req, res) {
+  if (req.method === "OPTIONS") return res.status(200).send("");
+  if (req.method !== "POST") return res.status(405).json({ ok: false });
 
+  const SCRIPT_URL = process.env.GOOGLE_SCRIPT_URL;
+  const API_KEY = process.env.API_KEY;
+
+  const resp = await fetch(SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...req.body, api_key: API_KEY }),
+  });
+
+  const text = await resp.text();
+  try {
+    return res.status(200).json(JSON.parse(text));
+  } catch {
+    return res.status(200).json({ ok: false, raw: text });
+  }
+}
