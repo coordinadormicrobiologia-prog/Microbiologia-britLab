@@ -1,6 +1,6 @@
 // services/storageService.ts
 // Implementación que usa el proxy /api/proxy cuando está disponible.
-// Requiere que exista src/constants.ts exportando PROXY_PATH y GOOGLE_SCRIPT_URL
+// Requiere que exista src/constants.ts exportando PROXY_PATH
 
 import { PROXY_PATH, GOOGLE_SCRIPT_URL } from '../constants';
 
@@ -17,56 +17,20 @@ async function timeoutFetch(url: string, options: RequestInit = {}) {
   }
 }
 
-function normalizeRawEntry(raw: any) {
-  // Normaliza distintas variantes de nombres de campos que pueda devolver el Apps Script / planilla
-  const id = raw.id ?? raw.ID ?? raw._id ?? raw.rowId ?? raw.row ?? raw.timestamp ?? raw.timeId ?? '';
-  const date = raw.date ?? raw.fecha ?? raw.Date ?? raw.FECHA ?? '';
-  const employeeName =
-    (raw.employeeName ?? raw.employee ?? raw.nombre ?? raw.nombre_completo ?? raw['Employee Name'] ?? raw['Nombre'] ?? raw.username ?? raw.user ?? '')
-    .toString()
-    .trim();
-  const entryTime = raw.entryTime ?? raw.ingreso ?? raw.in ?? raw.start ?? raw.hora_inicio ?? '';
-  const exitTime = raw.exitTime ?? raw.egreso ?? raw.out ?? raw.end ?? raw.hora_fin ?? '';
-  const totalHours = Number(raw.totalHours ?? raw.horas ?? raw.hours ?? raw.total ?? 0) || 0;
-  const dayType = raw.dayType ?? raw.tipo ?? raw.type ?? 'Semana';
-  const isHoliday = Boolean(raw.isHoliday ?? raw.feriado ?? raw.holiday ?? false);
-  const observation = raw.observation ?? raw.observacion ?? raw.notes ?? raw.nota ?? '';
-  const timestamp = raw.timestamp ?? raw.createdAt ?? raw._createdAt ?? '';
-
-  return {
-    id: String(id),
-    date,
-    employeeName,
-    entryTime,
-    exitTime,
-    totalHours,
-    dayType,
-    isHoliday,
-    observation,
-    timestamp
-  };
-}
-
 export const storageService = {
   // Comprueba si la app está configurada: aceptamos proxy o la URL directa
   isConfigured(): boolean {
     return Boolean(PROXY || GOOGLE_SCRIPT_URL);
   },
 
-  // Leer todos los registros y normalizarlos
+  // Leer todos los registros
   async getAllLogs(): Promise<any[]> {
     try {
+      // Usa proxy para evitar CORS; action=getEntries será pasada al Apps Script desde el proxy
       const url = `${PROXY}?action=getEntries`;
       const res = await timeoutFetch(url, { method: 'GET' });
       const text = await res.text();
-      let parsed: any = null;
-      try { parsed = JSON.parse(text); } catch { parsed = text; }
-
-      // Si el Apps Script devuelve { data: [...] } o directamente una lista [...]
-      const rawArray = Array.isArray(parsed) ? parsed : (parsed && parsed.data) ? parsed.data : [];
-      if (!Array.isArray(rawArray)) return [];
-
-      return rawArray.map(normalizeRawEntry);
+      try { return JSON.parse(text).data ?? JSON.parse(text); } catch { return []; }
     } catch (err) {
       console.error('getAllLogs error', err);
       return [];
@@ -76,17 +40,20 @@ export const storageService = {
   // Guardar un registro
   async saveLog(entry: any): Promise<boolean> {
     try {
+      // Enviar al proxy; este injectará apiKey y forwardeará al Apps Script
       const res = await timeoutFetch(PROXY, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'saveEntry', entry }),
       });
 
+      // Proxy reenvía la respuesta del Apps Script; intentamos parsear
       const text = await res.text();
       try {
         const parsed = JSON.parse(text);
         return Boolean(parsed && (parsed.ok === true || parsed.ok));
       } catch {
+        // Si no es JSON, consideramos ok si status HTTP es 2xx
         return res.ok;
       }
     } catch (err) {
@@ -95,13 +62,13 @@ export const storageService = {
     }
   },
 
-  // Borrar un registro por id (implementación para el front)
-  async deleteLog(id: string): Promise<boolean> {
+  // Borrar un registro (nuevo)
+  async deleteLog(id: string, requesterName?: string): Promise<boolean> {
     try {
       const res = await timeoutFetch(PROXY, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'deleteEntry', id }),
+        body: JSON.stringify({ action: 'deleteEntry', id, requesterName }),
       });
 
       const text = await res.text();
