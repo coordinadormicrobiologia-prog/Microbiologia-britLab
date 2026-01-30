@@ -14,58 +14,35 @@ async function timeoutFetch(url: string, options: RequestInit = {}) {
   }
 }
 
-/**
- * Normaliza un registro desde Sheets (encabezados en español, a veces con espacios)
- * hacia la forma que espera la app (TimeLog).
- */
 function normalizeSheetsRow(row: any) {
-  // Normalizar claves: crear un mapa con keys sin espacios ni case-sensitivity
   const normalized: Record<string, any> = {};
   Object.keys(row || {}).forEach(k => {
-    const kk = String(k).trim(); // quita espacios en los nombres de columna
-    normalized[kk.toLowerCase()] = row[k];
+    const kk = String(k).trim().toLowerCase();
+    normalized[kk] = row[k];
   });
 
-  const get = (k: string) => normalized[k.toLowerCase()];
-
-  // helper para extraer hora mm:hh de un valor tipo ISO o string
   const extractTime = (val: any) => {
     if (!val) return '';
-    try {
-      const d = new Date(val);
-      if (isNaN(d.getTime())) return String(val).trim();
-      // Formatear "HH:MM" en 2 dígitos
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
       const hh = String(d.getHours()).padStart(2, '0');
       const mm = String(d.getMinutes()).padStart(2, '0');
       return `${hh}:${mm}`;
-    } catch {
-      return String(val).trim();
     }
+    return String(val).trim();
   };
 
-  const id = get('id') ?? get('ID') ?? get('Id') ?? '';
-  const date = get('fecha') ?? get('date') ?? '';
-  const employeeName = get('nombre') ?? get('name') ?? '';
-  const entryTime = extractTime(get('ingreso') ?? get(' ingreso') ?? get('in') ?? '');
-  const exitTime = extractTime(get('egreso') ?? get('egress') ?? get('egreso') ?? '');
-  const totalHoursRaw = get('total_horas') ?? get(' total_horas') ?? get('total_horas') ?? get('total_horas');
-  const totalHours = totalHoursRaw === undefined || totalHoursRaw === '' ? 0 : Number(totalHoursRaw);
-  const dayType = get('tipo_dia') ?? get('tipo') ?? get('daytype') ?? '';
-  const isHoliday = (get('feriado') === true) || String(get('feriado')).toLowerCase() === 'true' || false;
-  const observation = get('observaciones') ?? get('observación') ?? '';
-  const timestamp = get('fecha_carga') ?? get('fecha_carga') ?? '';
-
   return {
-    id: String(id),
-    date: String(date),
-    employeeName: String(employeeName),
-    entryTime: String(entryTime),
-    exitTime: String(exitTime),
-    totalHours: Number(totalHours) || 0,
-    dayType: String(dayType),
-    isHoliday: Boolean(isHoliday),
-    observation: String(observation),
-    timestamp: String(timestamp),
+    id: String(normalized['id'] ?? ''),
+    date: String(normalized['fecha'] ?? ''),
+    employeeName: String(normalized['nombre'] ?? '').trim(),
+    entryTime: extractTime(normalized['ingreso'] ?? normalized[' ingreso']),
+    exitTime: extractTime(normalized['egreso'] ?? normalized['egress']),
+    totalHours: Number(normalized['total_horas'] ?? normalized[' total_horas'] ?? 0) || 0,
+    dayType: String(normalized['tipo_dia'] ?? normalized['tipodia'] ?? ''),
+    isHoliday: (String(normalized['feriado'] ?? '').toLowerCase() === 'true'),
+    observation: String(normalized['observaciones'] ?? normalized['observación'] ?? ''),
+    timestamp: String(normalized['fecha_carga'] ?? ''),
   };
 }
 
@@ -84,9 +61,7 @@ export const storageService = {
         const parsed = JSON.parse(text);
         const raw = parsed.data ?? parsed;
         if (!Array.isArray(raw)) return [];
-        // Normalizar cada fila a la forma que espera la app
-        const mapped = raw.map(normalizeSheetsRow);
-        return mapped;
+        return raw.map(normalizeSheetsRow);
       } catch (err) {
         console.error('getAllLogs JSON parse error', err);
         return [];
