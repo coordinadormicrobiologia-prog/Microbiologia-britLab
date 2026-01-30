@@ -19,18 +19,12 @@ async function timeoutFetch(url: string, options: RequestInit = {}) {
 
 function normalizeRawEntry(raw: any) {
   // Normaliza distintas variantes de nombres de campos que pueda devolver el Apps Script / planilla
-  const id = raw.id ?? raw.ID ?? raw._id ?? raw.rowId ?? raw.row ?? raw.timestamp ?? (raw.time && raw.time.id) ?? '';
+  const id = raw.id ?? raw.ID ?? raw._id ?? raw.rowId ?? raw.row ?? raw.timestamp ?? raw.timeId ?? '';
   const date = raw.date ?? raw.fecha ?? raw.Date ?? raw.FECHA ?? '';
   const employeeName =
-    raw.employeeName ??
-    raw.employee ??
-    raw.nombre ??
-    raw.nombre_completo ??
-    raw['Employee Name'] ??
-    raw['Nombre'] ??
-    raw.username ??
-    raw.user ??
-    '';
+    (raw.employeeName ?? raw.employee ?? raw.nombre ?? raw.nombre_completo ?? raw['Employee Name'] ?? raw['Nombre'] ?? raw.username ?? raw.user ?? '')
+    .toString()
+    .trim();
   const entryTime = raw.entryTime ?? raw.ingreso ?? raw.in ?? raw.start ?? raw.hora_inicio ?? '';
   const exitTime = raw.exitTime ?? raw.egreso ?? raw.out ?? raw.end ?? raw.hora_fin ?? '';
   const totalHours = Number(raw.totalHours ?? raw.horas ?? raw.hours ?? raw.total ?? 0) || 0;
