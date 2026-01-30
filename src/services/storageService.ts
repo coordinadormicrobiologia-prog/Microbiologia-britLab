@@ -7,7 +7,8 @@ async function timeoutFetch(url: string, options: RequestInit = {}) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
+    const fetchOptions = { cache: 'no-store', ...options, signal: controller.signal };
+    const res = await fetch(url, fetchOptions);
     return res;
   } finally {
     clearTimeout(timeoutId);
@@ -20,7 +21,6 @@ function normalizeSheetsRow(row: any) {
     const kk = String(k).trim().toLowerCase();
     normalized[kk] = row[k];
   });
-
   const extractTime = (val: any) => {
     if (!val) return '';
     const d = new Date(val);
@@ -37,7 +37,7 @@ function normalizeSheetsRow(row: any) {
     date: String(normalized['fecha'] ?? ''),
     employeeName: String(normalized['nombre'] ?? '').trim(),
     entryTime: extractTime(normalized['ingreso'] ?? normalized[' ingreso']),
-    exitTime: extractTime(normalized['egreso'] ?? normalized['egress']),
+    exitTime: extractTime(normalized['egreso'] ?? ''),
     totalHours: Number(normalized['total_horas'] ?? normalized[' total_horas'] ?? 0) || 0,
     dayType: String(normalized['tipo_dia'] ?? normalized['tipodia'] ?? ''),
     isHoliday: (String(normalized['feriado'] ?? '').toLowerCase() === 'true'),
@@ -46,32 +46,58 @@ function normalizeSheetsRow(row: any) {
   };
 }
 
+async function parseResponseText(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return null;
+  }
+}
+
 export const storageService = {
   isConfigured(): boolean {
     return Boolean(PROXY || GOOGLE_SCRIPT_URL);
   },
 
-  async getAllLogs(): Promise<any[]> {
-    try {
-      const url = `${PROXY}?action=getEntries`;
-      const res = await timeoutFetch(url, { method: 'GET' });
-      const text = await res.text();
-      console.debug('getAllLogs response text:', text);
+  // getAllLogs robusto: reintenta si la respuesta parece ser la del save en lugar del listado
+  async getAllLogs(retries = 3, delayMs = 800): Promise<any[]> {
+    const url = `${PROXY}?action=getEntries`;
+    for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        const parsed = JSON.parse(text);
-        const raw = parsed.data ?? parsed;
-        if (!Array.isArray(raw)) return [];
-        return raw.map(normalizeSheetsRow);
+        const res = await timeoutFetch(url, { method: 'GET' });
+        const text = await res.text();
+        console.debug('[storageService] getAllLogs response text (attempt', attempt + 1, '):', text.slice(0, 2000));
+        const parsed = await parseResponseText(text);
+        if (!parsed) {
+          console.warn('[storageService] getAllLogs: response not JSON, attempt', attempt + 1);
+        } else {
+          let raw = parsed.data ?? parsed;
+          if (raw && typeof raw === 'object' && Array.isArray(raw.data)) raw = raw.data;
+          // Si recibimos un objeto tipo save-response (contiene id/ok pero no array), reintentar
+          if (raw && typeof raw === 'object' && !Array.isArray(raw) && (raw.id || raw.ok) && !Array.isArray(raw.data)) {
+            console.warn('[storageService] getAllLogs: received save-like object instead of array, attempt', attempt + 1);
+            if (attempt < retries - 1) {
+              await new Promise(r => setTimeout(r, delayMs));
+              continue;
+            } else {
+              return [];
+            }
+          }
+          if (Array.isArray(raw)) {
+            return raw.map(normalizeSheetsRow);
+          } else {
+            console.warn('[storageService] getAllLogs: parsed data is not array (attempt', attempt + 1, ')', raw);
+          }
+        }
       } catch (err) {
-        console.error('getAllLogs JSON parse error', err);
-        return [];
+        console.error('[storageService] getAllLogs error on attempt', attempt + 1, err);
       }
-    } catch (err) {
-      console.error('getAllLogs error', err);
-      return [];
+      await new Promise(r => setTimeout(r, delayMs));
     }
+    return [];
   },
 
+  // saveLog devuelve objeto con ok y, cuando sea posible, saved
   async saveLog(entry: any): Promise<{ ok: boolean; saved?: any; raw?: any }> {
     try {
       const res = await timeoutFetch(PROXY, {
@@ -80,19 +106,20 @@ export const storageService = {
         body: JSON.stringify({ action: 'saveEntry', entry }),
       });
       const text = await res.text();
-      console.debug('saveLog response text:', text);
-      try {
-        const parsed = JSON.parse(text);
-        return { ok: Boolean(parsed && (parsed.ok === true || parsed.ok)), saved: parsed.saved ?? parsed.entry, raw: parsed };
-      } catch {
-        return { ok: res.ok, raw: text };
+      console.debug('[storageService] saveLog response text:', text);
+      const parsed = await parseResponseText(text);
+      if (parsed) {
+        const saved = parsed.saved ?? parsed.data ?? parsed.entry ?? parsed;
+        return { ok: Boolean(parsed.ok === true || parsed.ok), saved, raw: parsed };
       }
+      return { ok: res.ok, raw: text };
     } catch (err) {
-      console.error('saveLog error', err);
+      console.error('[storageService] saveLog error', err);
       return { ok: false };
     }
   },
 
+  // deleteLog: solicita eliminación al proxy; el proxy debe validar propietario/admin
   async deleteLog(id: string, requesterName?: string): Promise<boolean> {
     try {
       const res = await timeoutFetch(PROXY, {
@@ -101,7 +128,7 @@ export const storageService = {
         body: JSON.stringify({ action: 'deleteEntry', id, requesterName }),
       });
       const text = await res.text();
-      console.debug('deleteLog response text:', text);
+      console.debug('[storageService] deleteLog response text:', text);
       try {
         const parsed = JSON.parse(text);
         return Boolean(parsed && (parsed.ok === true || parsed.ok));
@@ -109,7 +136,7 @@ export const storageService = {
         return res.ok;
       }
     } catch (err) {
-      console.error('deleteLog error', err);
+      console.error('[storageService] deleteLog error', err);
       return false;
     }
   }
