@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, TimeLog, DayType } from '../types';
 import { storageService } from '../services/storageService';
 import { OBSERVATION_PLACEHOLDER } from '../constants';
+import { formatLogDateForDisplay } from '../utils/dateHelpers';
 
 interface EmployeePortalProps {
   user: User;
@@ -18,7 +19,6 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
   const [recentLogs, setRecentLogs] = useState<TimeLog[]>([]);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null);
 
-  // Normaliza una fila como lo hace storageService (por seguridad si el service no normalizara)
   const normalizeSheetsRow = (row: any) => {
     const normalized: Record<string, any> = {};
     Object.keys(row || {}).forEach(k => {
@@ -149,7 +149,6 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
 
     if (result.ok) {
       const saved = result.saved ?? log;
-      // Optimistic update
       setRecentLogs(prev => [saved as TimeLog, ...prev].slice(0,5));
       setMessage({ type: 'success', text: '¡Registro enviado! Actualizando lista...' });
       setObservation('');
@@ -175,7 +174,6 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
     setLoading(false);
   };
 
-  // helper temporal expuesto en window para debug sin rebuild
   (window as any).__debug_fetchRecentLogs = async () => {
     try {
       const logs = await storageService.getAllLogs();
@@ -206,8 +204,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* form fields (date, entryTime, exitTime, holiday, observation) */}
-          {/* ... mantén el resto del formulario tal cual ... */}
+          {/* mantén tus campos del formulario como estaban */}
           <div className="flex items-center justify-between">
             <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-md">Confirmar Registro</button>
             <div className="text-sm text-slate-500">{isRefreshing ? 'Actualizando...' : ''}</div>
@@ -215,7 +212,6 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
         </form>
       </div>
 
-      {/* Tus Registros Recientes */}
       <div className="bg-white rounded-2xl shadow-sm border p-6 md:p-8">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -234,8 +230,8 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
             recentLogs.map(log => (
               <div key={log.id} className="flex items-center justify-between p-3 border rounded">
                 <div>
-                  <div className="font-medium">{new Date(log.date + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' })}</div>
-                  <div className="text-xs text-slate-500">{log.entryTime} a {log.exitTime} — {log.totalHours}h ({log.dayType})</div>
+                  <div className="font-medium">{formatLogDateForDisplay(log.date)}</div>
+                  <div className="text-xs text-slate-500">{log.entryTime} a {log.exitTime} — {Number(log.totalHours).toFixed(2)}h ({log.dayType})</div>
                 </div>
                 <div>
                   <button onClick={() => handleDelete(log.id)} className="text-red-500 p-2 rounded hover:bg-red-50">🗑</button>
@@ -244,10 +240,6 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
             ))
           )}
         </div>
-
-        {/* DEBUG: mostrar recentLogs como JSON (temporal)
-        <pre className="p-4 bg-slate-50 text-xs rounded mt-4">{JSON.stringify(recentLogs, null, 2)}</pre>
-        */}
       </div>
     </div>
   );
