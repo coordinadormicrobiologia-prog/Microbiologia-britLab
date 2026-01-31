@@ -19,6 +19,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
   const [recentLogs, setRecentLogs] = useState<TimeLog[]>([]);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'warning', text: string } | null>(null);
 
+  // Normaliza fila (igual que service, redundante por seguridad)
   const normalizeSheetsRow = (row: any) => {
     const normalized: Record<string, any> = {};
     Object.keys(row || {}).forEach(k => {
@@ -59,7 +60,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
     };
 
     return {
-      id: String(normalized['id'] ?? ''),
+      id: String(normalized['id'] ?? normalized['ID'] ?? ''),
       date: parseDateOnly(normalized['fecha'] ?? normalized['date'] ?? ''),
       employeeName: String(normalized['nombre'] ?? normalized['name'] ?? '').trim(),
       entryTime: extractTime(normalized['ingreso'] ?? normalized[' ingreso'] ?? normalized['in'] ?? ''),
@@ -73,26 +74,21 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
   };
 
   const fetchRecentLogs = async () => {
-    console.log('[DEBUG] fetchRecentLogs: start');
     setIsRefreshing(true);
     try {
       const logs = await storageService.getAllLogs();
-      console.log('[DEBUG] storageService.getAllLogs raw:', logs);
       const mapped = Array.isArray(logs) ? logs.map(normalizeSheetsRow) : [];
-      console.log('[DEBUG] mapped logs (first 5):', mapped.slice(0,5));
       const normalizeName = (s: string) => String(s || '').trim().toLowerCase();
       const myLogs = mapped
         .filter(l => normalizeName(l.employeeName) === normalizeName(user.name))
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 5);
-      console.log('[DEBUG] myLogs (to set):', myLogs);
       setRecentLogs(myLogs);
     } catch (err) {
-      console.error('[DEBUG] fetchRecentLogs error', err);
+      console.error('[EmployeePortal] fetchRecentLogs error', err);
       setRecentLogs([]);
     } finally {
       setIsRefreshing(false);
-      console.log('[DEBUG] fetchRecentLogs: end');
     }
   };
 
@@ -149,9 +145,11 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
 
     if (result.ok) {
       const saved = result.saved ?? log;
+      // Optimistic update con el objeto que devolvió el server si está disponible
       setRecentLogs(prev => [saved as TimeLog, ...prev].slice(0,5));
       setMessage({ type: 'success', text: '¡Registro enviado! Actualizando lista...' });
       setObservation('');
+      // Re-sincronizar (dar tiempo al GAS de persistir)
       setTimeout(fetchRecentLogs, 1500);
     } else {
       setMessage({ type: 'error', text: 'Error al enviar datos. Verifique su conexión.' });
@@ -163,17 +161,31 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
     if (!window.confirm('¿Deseas borrar este registro?')) return;
 
     setLoading(true);
-    const success = await storageService.deleteLog(id, user.name);
-    if (success) {
-      setRecentLogs(prev => prev.filter(l => l.id !== id));
-      setMessage({ type: 'success', text: 'Registro eliminado.' });
-      setTimeout(fetchRecentLogs, 1000);
-    } else {
-      setMessage({ type: 'error', text: 'No se pudo eliminar el registro.' });
+    try {
+      const res = await storageService.deleteLogVerbose(id, user.name);
+      console.log('delete verbose result:', res);
+      if (res && (res.ok === true || res.ok)) {
+        setRecentLogs(prev => prev.filter(l => l.id !== id));
+        setMessage({ type: 'success', text: 'Registro eliminado.' });
+        setTimeout(fetchRecentLogs, 800);
+      } else if (res && res.error === 'not_found') {
+        setRecentLogs(prev => prev.filter(l => l.id !== id));
+        setMessage({ type: 'warning', text: 'El registro ya no existía (se eliminó antes).' });
+        setTimeout(fetchRecentLogs, 800);
+      } else if (res && res.error === 'not_owner') {
+        setMessage({ type: 'error', text: 'No tenés permiso para borrar ese registro.' });
+      } else {
+        setMessage({ type: 'error', text: 'No se pudo eliminar: ' + (res && (res.error || res.raw) ? (res.error || JSON.stringify(res.raw)) : 'Error desconocido') });
+      }
+    } catch (err) {
+      console.error('delete error', err);
+      setMessage({ type: 'error', text: 'Error al pedir borrado. Mira consola.' });
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
+  // helper temporal expuesto en window para debug sin rebuild
   (window as any).__debug_fetchRecentLogs = async () => {
     try {
       const logs = await storageService.getAllLogs();
@@ -204,7 +216,7 @@ const EmployeePortal: React.FC<EmployeePortalProps> = ({ user }) => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* mantén tus campos del formulario como estaban */}
+          {/* Mantén tus campos de formulario como ya los tenías */}
           <div className="flex items-center justify-between">
             <button type="submit" className="px-6 py-3 bg-blue-600 text-white rounded-md">Confirmar Registro</button>
             <div className="text-sm text-slate-500">{isRefreshing ? 'Actualizando...' : ''}</div>
