@@ -1,4 +1,4 @@
-
+import { formatLogDateForDisplay } from '../src/utils/dateHelpers';
 import React, { useState } from 'react';
 import { SampleRequest } from '../types';
 import { CheckCircle, XCircle, Clock, Search, Filter, ShieldCheck, FileUp, FileText, Info } from 'lucide-react';
