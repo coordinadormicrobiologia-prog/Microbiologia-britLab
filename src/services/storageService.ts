@@ -15,7 +15,6 @@ async function timeoutFetch(url: string, options: RequestInit = {}) {
   }
 }
 
-// Normaliza una fila desde Sheets (claves en español / con espacios) hacia la forma que espera la app
 function normalizeSheetsRow(row: any) {
   const normalized: Record<string, any> = {};
   Object.keys(row || {}).forEach(k => {
@@ -58,7 +57,7 @@ function normalizeSheetsRow(row: any) {
   };
 
   return {
-    id: String(normalized['id'] ?? ''),
+    id: String(normalized['id'] ?? normalized['ID'] ?? ''),
     date: parseDateOnly(normalized['fecha'] ?? normalized['date'] ?? ''),
     employeeName: String(normalized['nombre'] ?? normalized['name'] ?? '').trim(),
     entryTime: extractTime(normalized['ingreso'] ?? normalized[' ingreso'] ?? normalized['in'] ?? ''),
@@ -140,12 +139,12 @@ export const storageService = {
       return { ok: res.ok, raw: text };
     } catch (err) {
       console.error('[storageService] saveLog error', err);
-      return { ok: false };
+      return { ok: false, raw: String(err) };
     }
   },
 
-  // deleteLog: solicita eliminación al proxy; el proxy debe validar propietario/admin
-  async deleteLog(id: string, requesterName?: string): Promise<boolean> {
+  // deleteLogVerbose: devuelve el objeto parseado del server (para decidir casos not_found / not_owner)
+  async deleteLogVerbose(id: string, requesterName?: string): Promise<any> {
     try {
       const res = await timeoutFetch(PROXY, {
         method: 'POST',
@@ -154,16 +153,18 @@ export const storageService = {
       });
       const text = await res.text();
       console.debug('[storageService] deleteLog response text:', text);
-      try {
-        const parsed = JSON.parse(text);
-        return Boolean(parsed && (parsed.ok === true || parsed.ok));
-      } catch {
-        return res.ok;
-      }
+      const parsed = await parseResponseText(text);
+      return parsed ?? { ok: res.ok, raw: text };
     } catch (err) {
       console.error('[storageService] deleteLog error', err);
-      return false;
+      return { ok: false, error: String(err) };
     }
+  },
+
+  // deleteLog boolean helper
+  async deleteLog(id: string, requesterName?: string): Promise<boolean> {
+    const r = await (storageService as any).deleteLogVerbose(id, requesterName);
+    return Boolean(r && (r.ok === true || r.ok));
   }
 };
 
